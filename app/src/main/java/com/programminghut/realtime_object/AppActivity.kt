@@ -1,4 +1,4 @@
-package com.programminghut.realtime_object
+package com.project.visionway
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -17,14 +17,14 @@ import android.view.TextureView.SurfaceTextureListener
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.programminghut.realtime_object.ml.SsdMobilenetV11Metadata1
+import com.project.visionway.ml.SsdMobilenetV11Metadata1
 import org.tensorflow.lite.support.common.FileUtil
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
 import java.util.*
 
-class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
+class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     lateinit var labels: List<String>
     var colors = listOf(
@@ -47,7 +47,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        setContentView(R.layout.activity_app)
         get_permission()
 
         // Carrega labels e modelo

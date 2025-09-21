@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace "com.programminghut.realtime_object"
+    namespace "com.project.visionway"
     compileSdk 32
 
     defaultConfig {
-        applicationId "com.programminghut.realtime_object"
+        applicationId "com.project.visionway"
         minSdk 24
         targetSdk 32
         versionCode 1

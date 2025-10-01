@@ -22,18 +22,13 @@
 
         <!-- Tela inicial do app -->
         <activity
-            android:name=".MenuActivity"
+            android:name=".AppActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- Activity da câmera / detecção -->
-        <activity
-            android:name=".AppActivity"
-            android:exported="true" />
 
     </application>
 

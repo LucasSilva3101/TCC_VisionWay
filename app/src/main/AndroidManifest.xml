@@ -17,10 +17,10 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.visionway"
+        android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
         tools:targetApi="31">
 
-        <!-- Tela inicial do app -->
+        <!-- Tela inicial -->
         <activity
             android:name=".MenuActivity"
             android:exported="true">
@@ -30,11 +30,10 @@
             </intent-filter>
         </activity>
 
-        <!-- Activity da câmera / detecção -->
+        <!-- Tela de reconhecimento com câmera -->
         <activity
             android:name=".AppActivity"
             android:exported="true" />
 
     </application>
-
 </manifest>

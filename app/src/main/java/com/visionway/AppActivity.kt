@@ -16,6 +16,7 @@ import android.view.TextureView
 import android.view.TextureView.SurfaceTextureListener
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.project.visionway.ml.SsdMobilenetV11Metadata1
 import org.tensorflow.lite.support.common.FileUtil
@@ -26,8 +27,12 @@ import java.util.*
 
 class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
+    companion object {
+        private const val CAMERA_PERMISSION_REQUEST = 101
+    }
+
     lateinit var labels: List<String>
-    var colors = listOf(
+    val colors = listOf(
         Color.BLUE, Color.GREEN, Color.RED, Color.CYAN, Color.GRAY,
         Color.BLACK, Color.DKGRAY, Color.MAGENTA, Color.YELLOW, Color.RED
     )
@@ -41,40 +46,41 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     lateinit var textureView: TextureView
     lateinit var model: SsdMobilenetV11Metadata1
 
-    // 🔊 TTS
     private lateinit var tts: TextToSpeech
     private var lastSpokenTime = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_app)
-        get_permission()
 
-        // Carrega labels e modelo
+        imageView = findViewById(R.id.imageView)
+        textureView = findViewById(R.id.textureView)
+        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+
         labels = FileUtil.loadLabels(this, "labels.txt")
         imageProcessor = ImageProcessor.Builder()
             .add(ResizeOp(300, 300, ResizeOp.ResizeMethod.BILINEAR)).build()
         model = SsdMobilenetV11Metadata1.newInstance(this)
 
-        // Thread para capturar frames
         val handlerThread = HandlerThread("videoThread")
         handlerThread.start()
         handler = Handler(handlerThread.looper)
 
-        imageView = findViewById(R.id.imageView)
-        textureView = findViewById(R.id.textureView)
-
-        // Listener da câmera
         textureView.surfaceTextureListener = object : SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(p0: SurfaceTexture, p1: Int, p2: Int) {
-                open_camera()
+            override fun onSurfaceTextureAvailable(p0: android.graphics.SurfaceTexture, p1: Int, p2: Int) {
+                // 🚨 Só abre câmera se já tiver permissão
+                if (hasCameraPermission()) {
+                    open_camera()
+                } else {
+                    requestCameraPermission()
+                }
             }
 
-            override fun onSurfaceTextureSizeChanged(p0: SurfaceTexture, p1: Int, p2: Int) {}
-            override fun onSurfaceTextureDestroyed(p0: SurfaceTexture): Boolean = false
+            override fun onSurfaceTextureSizeChanged(p0: android.graphics.SurfaceTexture, p1: Int, p2: Int) {}
+            override fun onSurfaceTextureDestroyed(p0: android.graphics.SurfaceTexture): Boolean = false
 
-            override fun onSurfaceTextureUpdated(p0: SurfaceTexture) {
-                bitmap = textureView.bitmap!!
+            override fun onSurfaceTextureUpdated(p0: android.graphics.SurfaceTexture) {
+                bitmap = textureView.bitmap ?: return
                 var image = TensorImage.fromBitmap(bitmap)
                 image = imageProcessor.process(image)
 
@@ -83,7 +89,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val classes = outputs.classesAsTensorBuffer.floatArray
                 val scores = outputs.scoresAsTensorBuffer.floatArray
 
-                var mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
                 val canvas = Canvas(mutable)
 
                 val h = mutable.height
@@ -93,7 +99,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
                 scores.forEachIndexed { index, fl ->
                     val x = index * 4
-                    if (fl > 0.6) { // confiança mínima
+                    if (fl > 0.6) {
                         val label = labels[classes[index].toInt()]
                         paint.color = colors[index % colors.size]
                         paint.style = Paint.Style.STROKE
@@ -113,7 +119,6 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                             paint
                         )
 
-                        // 🔊 Fala apenas a cada 3 segundos
                         val now = System.currentTimeMillis()
                         if (now - lastSpokenTime > 3000) {
                             tts.speak(label, TextToSpeech.QUEUE_FLUSH, null, null)
@@ -121,41 +126,39 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         }
                     }
                 }
-
                 imageView.setImageBitmap(mutable)
             }
         }
 
-        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
-
-        // Inicializa TTS
         tts = TextToSpeech(this, this)
-    }
 
-    // Configuração do TTS
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale("pt", "BR") // Português
+        // Solicita permissão só se necessário
+        if (!hasCameraPermission()) {
+            requestCameraPermission()
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        model.close()
-        tts.stop()
-        tts.shutdown()
+    private fun hasCameraPermission() =
+        ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestCameraPermission() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(android.Manifest.permission.CAMERA),
+            CAMERA_PERMISSION_REQUEST
+        )
     }
 
     @SuppressLint("MissingPermission")
     fun open_camera() {
+        if (!hasCameraPermission()) return
+
         cameraManager.openCamera(cameraManager.cameraIdList[0],
             object : CameraDevice.StateCallback() {
                 override fun onOpened(p0: CameraDevice) {
                     cameraDevice = p0
-
                     val surfaceTexture = textureView.surfaceTexture
                     val surface = Surface(surfaceTexture)
-
                     val captureRequest =
                         cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
                     captureRequest.addTarget(surface)
@@ -164,7 +167,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         listOf(surface),
                         object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(p0: CameraCaptureSession) {
-                                p0.setRepeatingRequest(captureRequest.build(), null, null)
+                                p0.setRepeatingRequest(captureRequest.build(), null, handler)
                             }
 
                             override fun onConfigureFailed(p0: CameraCaptureSession) {}
@@ -179,26 +182,47 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         )
     }
 
-    fun get_permission() {
-        if (ContextCompat.checkSelfPermission(
-                this,
-                android.Manifest.permission.CAMERA
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(android.Manifest.permission.CAMERA), 101)
-        }
-    }
-
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (grantResults.isNotEmpty() &&
-            grantResults[0] != PackageManager.PERMISSION_GRANTED
-        ) {
-            get_permission()
+        if (requestCode == 101) {
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            ) {
+                // 👉 Agora sim, abre a câmera
+                if (textureView.isAvailable) {
+                    open_camera()
+                } else {
+                    textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                            open_camera()
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
+                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = false
+                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                    }
+                }
+            } else {
+                // Permissão negada → exibe alerta e fecha ou continua sem câmera
+            }
         }
+    }
+
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts.language = Locale("pt", "BR")
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        model.close()
+        tts.stop()
+        tts.shutdown()
     }
 }

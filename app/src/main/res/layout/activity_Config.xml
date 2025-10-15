@@ -1,0 +1,64 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".ConfigActivity">
+
+    <!-- Barra superior -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:background="#334b7b" />
+
+    <!-- Botão Escolher Voz (no topo, logo abaixo da barra) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:background="#9cb0e8">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnIniciar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Escolher voz"
+            android:textSize="20sp"
+            android:textColor="@android:color/white"
+            android:padding="16dp"
+            app:cornerRadius="25dp"
+            app:backgroundTint="#4f78e8"
+            app:rippleColor="@android:color/darker_gray" />
+    </LinearLayout>
+
+    <!-- Área central com o botão Entrada de Vídeo -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:background="#9cb0e8"
+        android:padding="24dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSobre"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Entrada de vídeo"
+            android:textSize="20sp"
+            android:textColor="@android:color/white"
+            android:padding="16dp"
+            app:cornerRadius="25dp"
+            app:backgroundTint="#4f78e8"
+            app:rippleColor="@android:color/darker_gray" />
+    </LinearLayout>
+
+    <!-- Barra inferior -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:background="#334b7b" />
+
+</LinearLayout>

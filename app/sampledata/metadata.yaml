@@ -1,6 +1,6 @@
 description: Ultralytics best model trained on data.yaml
 author: Ultralytics
-date: '2025-10-12T20:27:18.618377'
+date: '2025-10-14T23:36:27.258507'
 version: 8.3.211
 license: AGPL-3.0 License (https://ultralytics.com/license)
 docs: https://docs.ultralytics.com
@@ -8,8 +8,8 @@ stride: 32
 task: detect
 batch: 1
 imgsz:
-- 640
-- 640
+- 352
+- 352
 names:
   0: Poste
   1: Buraco

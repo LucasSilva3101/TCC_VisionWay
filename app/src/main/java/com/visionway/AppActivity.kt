@@ -38,10 +38,10 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         private const val TAG = "VisionWay"
         private const val CAMERA_PERMISSION_REQUEST = 101
         private const val YOLO_IMG_SIZE = 640
-        private const val MAX_DETECTIONS = 300
-        private const val CONF_THRESHOLD = 0.05f
+        private const val MAX_DETECTIONS = 5
+        private const val CONF_THRESHOLD = 0.5f
         private const val IOU_THRESHOLD = 0.45f
-        private const val MIN_FRAME_INTERVAL_MS = 80L
+        private const val MIN_FRAME_INTERVAL_MS = 120L
     }
 
     // UI / Câmera

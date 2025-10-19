@@ -1,0 +1,7 @@
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+pip install ultralytics
+pip install tf_keras
+pip install onnx2tf==1.24.0
+pip install onnx_graphsurgeon
+pip install tensorflow onnx2tf
+pip install sng4onnx

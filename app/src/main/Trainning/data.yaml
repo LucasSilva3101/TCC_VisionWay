@@ -1,0 +1,15 @@
+
+
+#Diretorios dos datasets
+path: ./  # dataset root dir
+train: dataset/train  # dataset de treinamento
+val: dataset/val  # dataset de validação (Menor que o de treinamento)
+
+
+# Classes/nome dos labels que definimos
+names:
+  0: Poste
+  1: Buraco
+  2: Arvore
+  3: Pessoa
+  4: Escada

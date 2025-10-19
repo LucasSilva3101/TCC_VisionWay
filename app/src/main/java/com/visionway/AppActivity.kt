@@ -326,7 +326,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    // ======= Postprocess & NMS =======
+    // ======= Pos-processamento =======
     data class DetRaw(
         val x1: Float, val y1: Float, val x2: Float, val y2: Float,
         val conf: Float, val cls: Int
@@ -373,7 +373,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun postprocessYoloNoNmsDetLast(
-        out: Array<FloatArray>, // [N][4+nc]
+        out: Array<FloatArray>,
         numClasses: Int,
         confThr: Float
     ): List<DetRaw> {

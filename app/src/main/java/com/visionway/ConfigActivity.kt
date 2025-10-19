@@ -23,9 +23,7 @@ class ConfigActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnEscolherVoz).setOnClickListener {
             mostrarDialogoEscolherEngine()
         }
-        findViewById<Button>(R.id.btnEntradaVideo).setOnClickListener {
-            Toast.makeText(this, "Entrada de vídeo: em breve", Toast.LENGTH_SHORT).show()
-        }
+
     }
 
     // 1) Usuário escolhe o ENGINE instalado

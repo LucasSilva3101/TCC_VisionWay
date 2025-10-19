@@ -6,19 +6,13 @@ import android.content.SharedPreferences
 object VoicePrefs {
     private const val PREFS = "visionway_prefs"
 
-    const val KEY_TTS_ENGINE = "tts_engine"   // pacote do engine (ex.: com.google.android.tts)
-    const val KEY_VOICE_NAME = "voice_name"   // nome exato da Voice
+    const val KEY_VOICE_NAME   = "voice_name"   // nome exato da Voice (Google TTS)
     const val KEY_VOICE_GENDER = "voice_gender" // opcional: fallback
     const val GENDER_MALE = "male"
     const val GENDER_FEMALE = "female"
 
-    internal fun prefs(ctx: Context): SharedPreferences =
+    fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-
-    fun setEngine(ctx: Context, engine: String?) =
-        prefs(ctx).edit().putString(KEY_TTS_ENGINE, engine).apply()
-    fun getEngine(ctx: Context): String? =
-        prefs(ctx).getString(KEY_TTS_ENGINE, null)
 
     fun setVoiceName(ctx: Context, voice: String?) =
         prefs(ctx).edit().putString(KEY_VOICE_NAME, voice).apply()

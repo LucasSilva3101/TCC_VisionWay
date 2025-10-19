@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import android.util.Log
 import android.util.Size
 import android.view.Surface
@@ -36,7 +37,6 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     companion object {
         private const val TAG = "VisionWay"
         private const val CAMERA_PERMISSION_REQUEST = 101
-
         private const val YOLO_IMG_SIZE = 640
         private const val MAX_DETECTIONS = 300
         private const val CONF_THRESHOLD = 0.05f
@@ -70,16 +70,16 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val isProcessing = AtomicBoolean(false)
     private var lastFrameTs = 0L
 
-    // TTS
+    // TTS (somente Google)
     private lateinit var tts: TextToSpeech
     private var ttsReady = false
     private var lastSpokenTime = 0L
-    private var lastAppliedKey: String? = null // engine|voice
+    private var lastAppliedVoice: String? = null
 
-    // Listener de prefs (se quiser reagir instantaneamente às mudanças)
+    // Reagir a mudanças na voz salva
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == VoicePrefs.KEY_TTS_ENGINE || key == VoicePrefs.KEY_VOICE_NAME || key == VoicePrefs.KEY_VOICE_GENDER) {
-            applySelectedVoice(force = true)
+        if (key == VoicePrefs.KEY_VOICE_NAME || key == VoicePrefs.KEY_VOICE_GENDER) {
+            applyGoogleVoice(force = true)
         }
     }
 
@@ -93,7 +93,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
 
-        // Carrega labels e modelo (devem estar em /assets)
+        // Labels/modelo (em /assets)
         labels = FileUtil.loadLabels(this, "labels.txt")
         initTFLite("best_float32.tflite")
 
@@ -125,11 +125,9 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         val padX = prep.padX
                         val padY = prep.padY
 
-                        val out0 = tflite.getOutputTensor(0)
-                        val outShape = out0.shape()
+                        val outShape = tflite.getOutputTensor(0).shape()
                         var desenhou = false
 
-                        // Caso com NMS embutido: [1, N, 6]
                         if (outShape.size == 3 && outShape[0] == 1 && outShape[2] == 6) {
                             val n = min(outShape[1], MAX_DETECTIONS)
                             val output = Array(1) { Array(n) { FloatArray(6) } }
@@ -137,23 +135,19 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                             drawDetections(frame, output[0], scale, padX, padY)
                             desenhou = true
                         } else {
-                            // Sem NMS embutido — faz postprocess/NMS local
                             val nc = labels.size
                             val dim1 = outShape.getOrNull(1) ?: 0
                             val dim2 = outShape.getOrNull(2) ?: 0
 
                             val preds: List<DetRaw> = if (dim1 == 4 + nc) {
-                                // canais-primeiro: [1, 4+nc, N]
                                 val output3d = Array(1) { Array(dim1) { FloatArray(dim2) } }
                                 tflite.run(inputBuffer, output3d)
                                 postprocessYoloNoNmsChannelsFirst(output3d[0], nc, CONF_THRESHOLD)
                             } else if (dim2 == 4 + nc) {
-                                // det-último: [1, N, 4+nc]
                                 val output3d = Array(1) { Array(dim1) { FloatArray(dim2) } }
                                 tflite.run(inputBuffer, output3d)
                                 postprocessYoloNoNmsDetLast(output3d[0], nc, CONF_THRESHOLD)
                             } else {
-                                Log.e(TAG, "Formato sem NMS não suportado: ${outShape.contentToString()} (nc=$nc)")
                                 emptyList()
                             }
 
@@ -196,14 +190,9 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        // TTS: crie já com o engine salvo, se houver
-        val desiredEngine = VoicePrefs.getEngine(this)
-        tts = if (!desiredEngine.isNullOrBlank())
-            TextToSpeech(this, this, desiredEngine!!)
-        else
-            TextToSpeech(this, this)
+        // TTS: sempre no engine do Google
+        tts = TextToSpeech(this, this, TtsUtils.GOOGLE_TTS_PKG)
 
-        // (opcional) ouvir mudanças de prefs
         VoicePrefs.prefs(this).registerOnSharedPreferenceChangeListener(prefListener)
 
         if (!hasCamPerm()) reqPerm()
@@ -333,9 +322,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 return PreprocessResult(bb, r, dx, dy)
             }
 
-            else -> {
-                throw IllegalArgumentException("Tipo de input TFLite não suportado: $dataType")
-            }
+            else -> error("Tipo de input TFLite não suportado: $dataType")
         }
     }
 
@@ -357,8 +344,8 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val n = out[0].size
 
         val xs = out[0]; val ys = out[1]; val ws = out[2]; val hs = out[3]
-
         val results = ArrayList<DetRaw>(64)
+
         for (i in 0 until n) {
             var bestC = -1
             var bestP = -Float.MAX_VALUE
@@ -390,9 +377,9 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         numClasses: Int,
         confThr: Float
     ): List<DetRaw> {
-        require(out.isNotEmpty() && out[0].size == 4 + numClasses) {
-            "Esperado 4+nc colunas"
-        }
+        val channels = 4 + numClasses
+        require(out.isNotEmpty() && out[0].size == channels) { "Esperado 4+nc colunas" }
+
         val results = ArrayList<DetRaw>(64)
         for (i in out.indices) {
             val row = out[i]
@@ -443,6 +430,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val interW = maxOf(0f, interX2 - interX1)
         val interH = maxOf(0f, interY2 - interY1)
         val inter = interW * interH
+
         val areaA = maxOf(0f, a.x2 - a.x1) * maxOf(0f, a.y2 - a.y1)
         val areaB = maxOf(0f, b.x2 - b.x1) * maxOf(0f, b.y2 - b.y1)
         val uni = areaA + areaB - inter + 1e-6f
@@ -501,7 +489,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val t = System.currentTimeMillis()
             if (t - lastSpokenTime > 3000) {
                 try {
-                    applySelectedVoice(force = false)  // garante engine/voz atuais
+                    applyGoogleVoice(force = false)
                     tts.speak(label, TextToSpeech.QUEUE_FLUSH, null, null)
                 } catch (_: Exception) {}
                 lastSpokenTime = t
@@ -611,7 +599,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
-        applySelectedVoice(force = false)
+        applyGoogleVoice(force = false)
         if (textureView.isAvailable && hasCamPerm()) openCamera()
     }
 
@@ -623,52 +611,28 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         cameraDevice = null
     }
 
-    // ===== TTS =====
+    // ===== TTS (Google) =====
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             try { tts.language = Locale("pt", "BR") } catch (_: Exception) {}
             ttsReady = true
-            applySelectedVoice(force = true)
+            applyGoogleVoice(force = true)
         }
     }
 
-    /** Garante que o TTS está usando o engine e a voz escolhidos nas Configurações. */
-    private fun applySelectedVoice(force: Boolean) {
+    /** Aplica a voz salva do Google TTS; fallback para primeira pt-BR, depois pitch. */
+    private fun applyGoogleVoice(force: Boolean) {
         if (!ttsReady) return
 
-        val desiredEngine = VoicePrefs.getEngine(this)
-        val desiredVoice = VoicePrefs.getVoiceName(this)
-        val keyNow = "${desiredEngine ?: ""}|${desiredVoice ?: ""}"
-        if (!force && lastAppliedKey == keyNow) return
+        val desired = VoicePrefs.getVoiceName(this)
+        if (!force && lastAppliedVoice == desired) return
 
-        val currentEngine = runCatching { tts.defaultEngine }.getOrNull()
-        if (!desiredEngine.isNullOrBlank() && desiredEngine != currentEngine) {
-            // recria TTS no engine certo
-            try { tts.stop(); tts.shutdown() } catch (_: Exception) {}
-            ttsReady = false
-            tts = TextToSpeech(this, { st ->
-                if (st == TextToSpeech.SUCCESS) {
-                    try { tts.language = Locale("pt", "BR") } catch (_: Exception) {}
-                    ttsReady = true
-                    setVoiceByExactName(desiredVoice)
-                    lastAppliedKey = keyNow
-                }
-            }, desiredEngine)
-            return
-        }
-
-        // engine já ok → aplicar voz
-        setVoiceByExactName(desiredVoice)
-        lastAppliedKey = keyNow
-    }
-
-    private fun setVoiceByExactName(voiceName: String?) {
         try {
             tts.stop()
             var applied = false
 
-            if (!voiceName.isNullOrBlank()) {
-                val match = tts.voices?.firstOrNull { it.name == voiceName }
+            if (!desired.isNullOrBlank()) {
+                val match = tts.voices?.firstOrNull { it.name == desired }
                 if (match != null) {
                     tts.voice = match
                     tts.setPitch(1.0f)
@@ -678,7 +642,6 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
 
             if (!applied) {
-                // fallback: primeira voz pt-BR disponível do engine atual
                 val firstPt = tts.voices?.firstOrNull { v ->
                     v.locale?.language?.equals("pt", true) == true &&
                             (v.locale?.country.isNullOrBlank() || v.locale.country.equals("BR", true))
@@ -692,11 +655,12 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
 
             if (!applied) {
-                // fallback final: apenas ajusta pitch conforme gênero
                 val gen = VoicePrefs.getGender(this)
                 tts.setPitch(if (gen == VoicePrefs.GENDER_MALE) 0.9f else 1.1f)
                 tts.setSpeechRate(1.0f)
             }
+
+            lastAppliedVoice = desired
         } catch (_: Exception) {}
     }
 }

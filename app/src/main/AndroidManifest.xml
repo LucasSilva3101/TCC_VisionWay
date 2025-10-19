@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="com.project.visionway">
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permissão de câmera -->
+    <!-- Permite consultar se o pacote do Google TTS existe (Android 11+) -->
+    <queries>
+        <package android:name="com.google.android.tts" />
+    </queries>
+
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />
@@ -20,7 +23,7 @@
         android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
         tools:targetApi="31">
 
-        <!-- Tela inicial -->
+        <!-- Launcher -->
         <activity
             android:name=".MenuActivity"
             android:exported="true">
@@ -30,10 +33,15 @@
             </intent-filter>
         </activity>
 
-        <!-- Tela de reconhecimento com câmera -->
+        <!-- Configurações -->
+        <activity
+            android:name=".ConfigActivity"
+            android:exported="false" />
+
+        <!-- Reconhecimento (câmera) -->
         <activity
             android:name=".AppActivity"
-            android:exported="true" />
+            android:exported="false" />
 
     </application>
 </manifest>

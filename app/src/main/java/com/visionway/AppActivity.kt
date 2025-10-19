@@ -2,11 +2,11 @@ package com.project.visionway
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
-import android.hardware.camera2.params.StreamConfigurationMap
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -39,7 +39,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         private const val YOLO_IMG_SIZE = 640
         private const val MAX_DETECTIONS = 300
-        private const val CONF_THRESHOLD = 0.05f   // ↓ debug: mais baixo para ver primeiras caixas
+        private const val CONF_THRESHOLD = 0.05f
         private const val IOU_THRESHOLD = 0.45f
         private const val MIN_FRAME_INTERVAL_MS = 80L
     }
@@ -72,7 +72,16 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     // TTS
     private lateinit var tts: TextToSpeech
+    private var ttsReady = false
     private var lastSpokenTime = 0L
+    private var lastAppliedKey: String? = null // engine|voice
+
+    // Listener de prefs (se quiser reagir instantaneamente às mudanças)
+    private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == VoicePrefs.KEY_TTS_ENGINE || key == VoicePrefs.KEY_VOICE_NAME || key == VoicePrefs.KEY_VOICE_GENDER) {
+            applySelectedVoice(force = true)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,9 +93,9 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
 
-        // Carrega labels e modelo
-        labels = FileUtil.loadLabels(this, "labels.txt") // deve ter 5 linhas para 5 classes
-        initTFLite("best_float32.tflite") // troque aqui se o nome do seu .tflite for outro
+        // Carrega labels e modelo (devem estar em /assets)
+        labels = FileUtil.loadLabels(this, "labels.txt")
+        initTFLite("best_float32.tflite")
 
         val ht = HandlerThread("videoThread").apply { start() }
         handler = Handler(ht.looper)
@@ -110,21 +119,17 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
                 handler.post {
                     try {
-                        // PREPROCESS
                         val prep = preprocessToYolo(frame, YOLO_IMG_SIZE, inputIsNHWC, inputDataType)
                         val inputBuffer = prep.buffer
                         val scale = prep.scale
                         val padX = prep.padX
                         val padY = prep.padY
 
-                        // SHAPE da saída
                         val out0 = tflite.getOutputTensor(0)
-                        val outShape = out0.shape() // [1,N,6] ou [1,4+nc,N] / [1,N,4+nc]
-                        Log.d(TAG, "Output[0] shape=${outShape.contentToString()} type=${out0.dataType()}")
-
+                        val outShape = out0.shape()
                         var desenhou = false
 
-                        // 1) NMS embutido: [1, N, 6]
+                        // Caso com NMS embutido: [1, N, 6]
                         if (outShape.size == 3 && outShape[0] == 1 && outShape[2] == 6) {
                             val n = min(outShape[1], MAX_DETECTIONS)
                             val output = Array(1) { Array(n) { FloatArray(6) } }
@@ -132,41 +137,31 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                             drawDetections(frame, output[0], scale, padX, padY)
                             desenhou = true
                         } else {
-                            // 2) Sem NMS — leia em array 3D compatível e faça parser + NMS
+                            // Sem NMS embutido — faz postprocess/NMS local
                             val nc = labels.size
-                            val dim1 = outShape[1]
-                            val dim2 = outShape[2]
+                            val dim1 = outShape.getOrNull(1) ?: 0
+                            val dim2 = outShape.getOrNull(2) ?: 0
 
                             val preds: List<DetRaw> = if (dim1 == 4 + nc) {
                                 // canais-primeiro: [1, 4+nc, N]
-                                val output3d = Array(1) { Array(dim1) { FloatArray(dim2) } } // [1][4+nc][N]
+                                val output3d = Array(1) { Array(dim1) { FloatArray(dim2) } }
                                 tflite.run(inputBuffer, output3d)
-                                postprocessYoloNoNmsChannelsFirst(
-                                    out = output3d[0], // [4+nc][N]
-                                    numClasses = nc,
-                                    confThr = CONF_THRESHOLD
-                                )
+                                postprocessYoloNoNmsChannelsFirst(output3d[0], nc, CONF_THRESHOLD)
                             } else if (dim2 == 4 + nc) {
                                 // det-último: [1, N, 4+nc]
-                                val output3d = Array(1) { Array(dim1) { FloatArray(dim2) } } // [1][N][4+nc]
+                                val output3d = Array(1) { Array(dim1) { FloatArray(dim2) } }
                                 tflite.run(inputBuffer, output3d)
-                                postprocessYoloNoNmsDetLast(
-                                    out = output3d[0], // [N][4+nc]
-                                    numClasses = nc,
-                                    confThr = CONF_THRESHOLD
-                                )
+                                postprocessYoloNoNmsDetLast(output3d[0], nc, CONF_THRESHOLD)
                             } else {
                                 Log.e(TAG, "Formato sem NMS não suportado: ${outShape.contentToString()} (nc=$nc)")
                                 emptyList()
                             }
 
-                            // NMS + fallback Top-1 (debug visual)
                             val kept = nms(preds, IOU_THRESHOLD, MAX_DETECTIONS)
                             val finalList = if (kept.isEmpty() && preds.isNotEmpty()) {
                                 listOf(preds.maxBy { it.conf })
                             } else kept
 
-                            // Converter para formato [N,6] esperado pelo drawDetections
                             val detsForDraw = Array(finalList.size) { FloatArray(6) }
                             for (i in finalList.indices) {
                                 val d = finalList[i]
@@ -201,9 +196,23 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        tts = TextToSpeech(this, this)
+        // TTS: crie já com o engine salvo, se houver
+        val desiredEngine = VoicePrefs.getEngine(this)
+        tts = if (!desiredEngine.isNullOrBlank())
+            TextToSpeech(this, this, desiredEngine!!)
+        else
+            TextToSpeech(this, this)
+
+        // (opcional) ouvir mudanças de prefs
+        VoicePrefs.prefs(this).registerOnSharedPreferenceChangeListener(prefListener)
 
         if (!hasCamPerm()) reqPerm()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try { VoicePrefs.prefs(this).unregisterOnSharedPreferenceChangeListener(prefListener) } catch (_: Exception) {}
+        try { tts.stop(); tts.shutdown() } catch (_: Exception) {}
     }
 
     // ======= TFLite =======
@@ -212,7 +221,6 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val modelBuffer = try {
             FileUtil.loadMappedFile(this, assetModelName)
         } catch (e: Exception) {
-            // fallback se comprimido
             assets.open(assetModelName).use { input ->
                 val bytes = input.readBytes()
                 val bb = ByteBuffer.allocateDirect(bytes.size)
@@ -222,9 +230,8 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         tflite = Interpreter(modelBuffer, options)
 
-        // Detecta layout & tipo do input
         val in0 = tflite.getInputTensor(0)
-        val inShape = in0.shape() // [1,H,W,3] ou [1,3,H,W]
+        val inShape = in0.shape()
         inputDataType = in0.dataType()
         inputIsNHWC = inShape.size == 4 && inShape[3] == 3
         Log.d(TAG, "Input shape=${inShape.contentToString()} type=$inputDataType NHWC=$inputIsNHWC")
@@ -326,7 +333,9 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 return PreprocessResult(bb, r, dx, dy)
             }
 
-            else -> error("Tipo de input TFLite não suportado: $dataType")
+            else -> {
+                throw IllegalArgumentException("Tipo de input TFLite não suportado: $dataType")
+            }
         }
     }
 
@@ -338,7 +347,6 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun sigmoid(x: Float): Float = (1f / (1f + kotlin.math.exp(-x)))
 
-    /** Canais-primeiro: out = [4+nc][N]  (ex.: [9][8400]) */
     private fun postprocessYoloNoNmsChannelsFirst(
         out: Array<FloatArray>, // [4+nc][N]
         numClasses: Int,
@@ -350,20 +358,15 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         val xs = out[0]; val ys = out[1]; val ws = out[2]; val hs = out[3]
 
-        var maxScore = 0f
-        var countOver = 0
         val results = ArrayList<DetRaw>(64)
-
         for (i in 0 until n) {
             var bestC = -1
             var bestP = -Float.MAX_VALUE
             for (c in 0 until numClasses) {
                 var p = out[4 + c][i]
-                if (p < 0f || p > 1f) p = sigmoid(p) // defensivo
+                if (p < 0f || p > 1f) p = sigmoid(p)
                 if (p > bestP) { bestP = p; bestC = c }
             }
-            if (bestP > maxScore) maxScore = bestP
-            if (bestP >= confThr) countOver++
 
             val x = xs[i]; val y = ys[i]; val w = ws[i]; val h = hs[i]
             val usePixels = (w > 1.5f || h > 1.5f || x > 1.5f || y > 1.5f)
@@ -379,25 +382,18 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
             if (bestP >= confThr) results.add(DetRaw(x1, y1, x2, y2, bestP, bestC))
         }
-
-        Log.d(TAG, "postproc[ch-first]: maxScore=${"%.3f".format(maxScore)}  count>=thr=$countOver")
         return results
     }
 
-    /** Det-último: out = [N][4+nc]  (ex.: [8400][9]) */
     private fun postprocessYoloNoNmsDetLast(
         out: Array<FloatArray>, // [N][4+nc]
         numClasses: Int,
         confThr: Float
     ): List<DetRaw> {
-        val channels = 4 + numClasses
-        require(out.isNotEmpty() && out[0].size == channels) {
-            "Esperado 4+nc=$channels cols, veio ${if (out.isNotEmpty()) out[0].size else -1}"
+        require(out.isNotEmpty() && out[0].size == 4 + numClasses) {
+            "Esperado 4+nc colunas"
         }
-        var maxScore = 0f
-        var countOver = 0
         val results = ArrayList<DetRaw>(64)
-
         for (i in out.indices) {
             val row = out[i]
             var x = row[0]; var y = row[1]; var w = row[2]; var h = row[3]
@@ -409,8 +405,6 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (p < 0f || p > 1f) p = sigmoid(p)
                 if (p > bestP) { bestP = p; bestC = c }
             }
-            if (bestP > maxScore) maxScore = bestP
-            if (bestP >= confThr) countOver++
 
             val usePixels = (w > 1.5f || h > 1.5f || x > 1.5f || y > 1.5f)
             if (usePixels) { x /= YOLO_IMG_SIZE; y /= YOLO_IMG_SIZE; w /= YOLO_IMG_SIZE; h /= YOLO_IMG_SIZE }
@@ -422,8 +416,6 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
             if (bestP >= confThr) results.add(DetRaw(x1, y1, x2, y2, bestP, bestC))
         }
-
-        Log.d(TAG, "postproc[det-last]: maxScore=${"%.3f".format(maxScore)}  count>=thr=$countOver")
         return results
     }
 
@@ -448,11 +440,9 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val interY1 = maxOf(a.y1, b.y1)
         val interX2 = minOf(a.x2, b.x2)
         val interY2 = minOf(a.y2, b.y2)
-
         val interW = maxOf(0f, interX2 - interX1)
         val interH = maxOf(0f, interY2 - interY1)
         val inter = interW * interH
-
         val areaA = maxOf(0f, a.x2 - a.x1) * maxOf(0f, a.y2 - a.y1)
         val areaB = maxOf(0f, b.x2 - b.x1) * maxOf(0f, b.y2 - b.y1)
         val uni = areaA + areaB - inter + 1e-6f
@@ -474,12 +464,10 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         paint.textSize = h / 15f
         paint.strokeWidth = h / 85f
 
-        var any = false
         for (i in dets.indices) {
             val d = dets[i]
             val conf = d[4]
             if (conf < CONF_THRESHOLD) continue
-            any = true
 
             val clsId = d[5].toInt().coerceIn(0, labels.lastIndex)
             val label = labels[clsId]
@@ -512,7 +500,10 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
             val t = System.currentTimeMillis()
             if (t - lastSpokenTime > 3000) {
-                try { tts.speak(label, TextToSpeech.QUEUE_FLUSH, null, null) } catch (_: Exception) {}
+                try {
+                    applySelectedVoice(force = false)  // garante engine/voz atuais
+                    tts.speak(label, TextToSpeech.QUEUE_FLUSH, null, null)
+                } catch (_: Exception) {}
                 lastSpokenTime = t
             }
         }
@@ -620,6 +611,7 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
+        applySelectedVoice(force = false)
         if (textureView.isAvailable && hasCamPerm()) openCamera()
     }
 
@@ -635,6 +627,76 @@ class AppActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             try { tts.language = Locale("pt", "BR") } catch (_: Exception) {}
+            ttsReady = true
+            applySelectedVoice(force = true)
         }
+    }
+
+    /** Garante que o TTS está usando o engine e a voz escolhidos nas Configurações. */
+    private fun applySelectedVoice(force: Boolean) {
+        if (!ttsReady) return
+
+        val desiredEngine = VoicePrefs.getEngine(this)
+        val desiredVoice = VoicePrefs.getVoiceName(this)
+        val keyNow = "${desiredEngine ?: ""}|${desiredVoice ?: ""}"
+        if (!force && lastAppliedKey == keyNow) return
+
+        val currentEngine = runCatching { tts.defaultEngine }.getOrNull()
+        if (!desiredEngine.isNullOrBlank() && desiredEngine != currentEngine) {
+            // recria TTS no engine certo
+            try { tts.stop(); tts.shutdown() } catch (_: Exception) {}
+            ttsReady = false
+            tts = TextToSpeech(this, { st ->
+                if (st == TextToSpeech.SUCCESS) {
+                    try { tts.language = Locale("pt", "BR") } catch (_: Exception) {}
+                    ttsReady = true
+                    setVoiceByExactName(desiredVoice)
+                    lastAppliedKey = keyNow
+                }
+            }, desiredEngine)
+            return
+        }
+
+        // engine já ok → aplicar voz
+        setVoiceByExactName(desiredVoice)
+        lastAppliedKey = keyNow
+    }
+
+    private fun setVoiceByExactName(voiceName: String?) {
+        try {
+            tts.stop()
+            var applied = false
+
+            if (!voiceName.isNullOrBlank()) {
+                val match = tts.voices?.firstOrNull { it.name == voiceName }
+                if (match != null) {
+                    tts.voice = match
+                    tts.setPitch(1.0f)
+                    tts.setSpeechRate(1.0f)
+                    applied = true
+                }
+            }
+
+            if (!applied) {
+                // fallback: primeira voz pt-BR disponível do engine atual
+                val firstPt = tts.voices?.firstOrNull { v ->
+                    v.locale?.language?.equals("pt", true) == true &&
+                            (v.locale?.country.isNullOrBlank() || v.locale.country.equals("BR", true))
+                }
+                if (firstPt != null) {
+                    tts.voice = firstPt
+                    tts.setPitch(1.0f)
+                    tts.setSpeechRate(1.0f)
+                    applied = true
+                }
+            }
+
+            if (!applied) {
+                // fallback final: apenas ajusta pitch conforme gênero
+                val gen = VoicePrefs.getGender(this)
+                tts.setPitch(if (gen == VoicePrefs.GENDER_MALE) 0.9f else 1.1f)
+                tts.setSpeechRate(1.0f)
+            }
+        } catch (_: Exception) {}
     }
 }

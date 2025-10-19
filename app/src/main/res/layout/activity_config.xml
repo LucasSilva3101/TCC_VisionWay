@@ -21,7 +21,7 @@
         android:gravity="center"
         android:orientation="vertical"
         android:padding="24dp"
-        android:background="#9cb0e8">
+        android:background="#111518">
 
 
 
@@ -30,15 +30,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="20dp"
-            android:text="ESCOLHER VOZ"
+            android:text="Escolher voz"
             android:textSize="20sp"
-            android:textColor="@android:color/white"
+            android:textColor="#FFFFFF"
             android:padding="16dp"
-            app:cornerRadius="25dp"
-            app:backgroundTint="#4f78e8"
-            app:rippleColor="@android:color/darker_gray"
             android:textAllCaps="false"
-            tools:ignore="HardcodedText" />
+            app:cornerRadius="25dp"
+            app:strokeWidth="3dp"
+            app:strokeColor="#FFFFFF"
+            app:backgroundTint="#2c6aff"
+            app:rippleColor="@android:color/darker_gray" />
 
 
 

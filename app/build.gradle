@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace "com.project.visionway"
-    compileSdk 32
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.project.visionway"
         minSdk 24
-        targetSdk 32
+        targetSdk 35
         versionCode 1
         versionName "1.0"
 
@@ -51,4 +51,10 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.4'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.0'
+
+    // usar versão antiga do browser compatível com compileSdk 32
+    implementation 'androidx.browser:browser:1.5.0' // ou 1.6.0
+
+    // força anotation-experimental a 1.3.1 (compatível)
+    implementation 'androidx.annotation:annotation-experimental:1.3.1'
 }

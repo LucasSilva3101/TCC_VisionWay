@@ -1,11 +1,12 @@
 package com.project.visionway
 
-import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import androidx.appcompat.app.AppCompatActivity
 
 class MenuActivity : AppCompatActivity() {
+
+    private val suporteUrl = "https://forms.gle/z89t6gAymjWViYR99"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -13,18 +14,30 @@ class MenuActivity : AppCompatActivity() {
 
         val btnIniciar = findViewById<Button>(R.id.btnIniciar)
         val btnConfiguracoes = findViewById<Button>(R.id.btnConfiguracoes)
-        val btnSobre = findViewById<Button>(R.id.btnSobre)
+        val btnSuporte = findViewById<Button>(R.id.btnSuporte)
 
         btnIniciar.setOnClickListener {
-            startActivity(Intent(this, AppActivity::class.java))
+            startActivity(android.content.Intent(this, AppActivity::class.java))
         }
-
         btnConfiguracoes.setOnClickListener {
-            startActivity(Intent(this, ConfigActivity::class.java))
+            startActivity(android.content.Intent(this, ConfigActivity::class.java))
         }
+        btnSuporte.setOnClickListener {
+            // evita “duplo clique” acidental
+            btnSuporte.isEnabled = false
+            CustomTabsHelper.open(this, suporteUrl)
+            btnSuporte.postDelayed({ btnSuporte.isEnabled = true }, 600)
+        }
+    }
 
-        btnSobre.setOnClickListener {
-            // TODO: implementar tela "Sobre" (Activity ou Dialog)
-        }
+    override fun onStart() {
+        super.onStart()
+        // pré-aquecimento: deixa a abertura quase instantânea
+        CustomTabsHelper.warmup(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        CustomTabsHelper.unbind(this)
     }
 }
